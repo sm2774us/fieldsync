@@ -66,19 +66,19 @@ sequenceDiagram
     Note over D: Offline: events 1..30 saved locally (state: local)
     D->>S: GET /cursor
     S-->>D: acked_seq = 0
-    D->>D: mark ≤ 0 acknowledged (nothing yet)
+    D->>D: mark <= 0 acknowledged (nothing yet)
     D->>S: POST batch (events 1..8) + Idempotency-Key K1
     S->>S: check auth, schema, hash, continuity
     S->>S: ONE transaction: events + outbox + cursor + audit
     S--xD: acknowledgement LOST (timeout)
-    Note over D: Device cannot know. Events 1..8 stay "local".
+    Note over D: Device cannot know. Events 1..8 stay local.
     D->>S: GET /cursor
     S-->>D: acked_seq = 8
     D->>D: mark 1..8 acknowledged (no re-send needed)
     D->>S: POST batch (9..16) + Key K2
     S-->>D: 200 ack_through 16
-    D->>D: mark acknowledged; compact later
-    Note over D,S: If the cursor read had also failed, the device would resend K1 with identical bytes: the server replays the stored result, no duplicates.
+    D->>D: mark acknowledged, compact later
+    Note over D,S: If the cursor read had also failed, the device would resend K1 with identical bytes - the server replays the stored result, no duplicates.
 ```
 
 Rules the server applies, in order, to every batch:
