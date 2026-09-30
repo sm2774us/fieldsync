@@ -1,0 +1,91 @@
+name: Security
+
+# Findings surface as failed checks, code-scanning alerts and job summaries.
+# By design nothing here opens PRs or branches (no Dependabot / bot noise).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 5 * * 1"   # weekly: catches newly published CVEs against unchanged code
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v3
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: pip-audit (pinned constraints = what we ship)
+        run: |
+          pip install pip-audit
+          pip-audit -r constraints.txt --strict | tee audit.txt
+          { echo '### pip-audit'; echo '```'; cat audit.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: npm audit (web console)
+        working-directory: web
+        run: npm audit --audit-level=high
+      - name: Outdated report (informational, opens no PRs)
+        continue-on-error: true
+        run: |
+          pip install -c constraints.txt -e . >/dev/null
+          { echo '### Outdated Python deps (review at your own cadence)'; echo '```'; pip list --outdated; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: gitleaks (full history)
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.21.2 \
+            detect --source /repo --config /repo/.gitleaks.toml --redact --verbose
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      # Supplementary signal only: needs the Dependency graph (free on public repos; private repos
+      # need GitHub Advanced Security). pip-audit + npm audit above are the enforced dependency gates,
+      # so an unsupported repo must not turn the whole pipeline red.
+      - uses: actions/dependency-review-action@v4
+        continue-on-error: true
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-3.0, AGPL-3.0

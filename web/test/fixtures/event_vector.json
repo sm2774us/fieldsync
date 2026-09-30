@@ -1,0 +1,17 @@
+{
+  "device_id": "unit-1",
+  "event": {
+    "seq": 1,
+    "op_id": "0123456789abcdef",
+    "type": "report.create",
+    "schema_version": 1,
+    "record_id": "rec-0001",
+    "ts_ms": 1800000000000,
+    "base_version": null,
+    "payload": {
+      "title": "Café ✓",
+      "body": "Line one"
+    },
+    "content_hash": "0dd708148fedbde513d78c47f7fa689e10525abcde2d898a2e13bcb396bc0ce8"
+  }
+}

@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  python:
+    name: python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints.txt
+      - name: Install (constrained, reproducible)
+        run: pip install -c constraints.txt -e ".[dev]"
+      - name: Lint
+        run: ruff check . && ruff format --check .
+      - name: Types
+        run: mypy src
+      - name: Tests + coverage gate
+        run: pytest --cov=fieldsync --cov-report=term-missing --cov-report=xml
+      - name: End-to-end simulation (offline authoring, lossy link, conflict, tamper)
+        run: fieldsync-admin demo
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.13'
+        with:
+          name: python-reports
+          path: coverage.xml
+          retention-days: 14
+
+  web:
+    name: web console
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults: { run: { working-directory: web } }
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Lint
+        run: npm run lint
+      - name: Types
+        run: npm run typecheck
+      - name: Tests + coverage gate
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  workflows-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - name: actionlint
+        uses: docker://rhysd/actionlint:1.7.7
+        with: { args: -color }
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: fieldsync:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # trivy-action tags were pulled after the March 2026 supply-chain compromise, so we run the
+      # pinned Trivy container directly. Informational here; enforced (CRITICAL) in release.yml.
+      - name: Vulnerability report (informational)
+        continue-on-error: true
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -e TRIVY_DB_REPOSITORY=public.ecr.aws/aquasecurity/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2 \
+            ghcr.io/aquasecurity/trivy:0.74.0 image --no-progress --ignore-unfixed \
+            --severity HIGH,CRITICAL fieldsync:ci | tee trivy.txt
+          { echo '### Trivy: fixable HIGH/CRITICAL'; echo '```'; cat trivy.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Smoke test hardened container (read-only rootfs, no caps)
+        env:
+          KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+        run: |
+          docker run -d --name fieldsync-smoke --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges -p 8080:8080 \
+            -e SYNC_SIGNING_KEY="$KEY" -e SYNC_TOKEN_SECRET=ci-secret \
+            -v ci-data:/var/lib/fieldsync fieldsync:ci
+          # docker-proxy accepts the TCP connection before uvicorn is listening, so the early
+          # attempts are *reset* (curl exit 56), not refused. --retry-all-errors covers both.
+          if ! curl -fsS --retry 40 --retry-delay 1 --retry-connrefused --retry-all-errors \
+                --max-time 5 localhost:8080/readyz; then
+            echo "::error::container never became ready"; docker logs fieldsync-smoke; exit 1
+          fi
+          curl -fsS --max-time 5 localhost:8080/metrics | grep -q sync_open_alerts
+      - name: Container logs
+        if: always()
+        run: |
+          docker logs fieldsync-smoke || true
+          docker rm -f fieldsync-smoke || true
+
+  stack:
+    name: full stack (compose)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - name: Prepare environment (throwaway secrets for this run only)
+        run: |
+          {
+            grep -vE '^SYNC_(SIGNING_KEY|TOKEN_SECRET)=' .env.example
+            echo "SYNC_SIGNING_KEY=$(openssl rand -hex 32)"
+            echo "SYNC_TOKEN_SECRET=$(openssl rand -hex 32)"
+          } > .env
+      - name: Build and start API + console
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Console serves the SPA and proxies the API
+        run: |
+          curl -fsS --retry 20 --retry-delay 1 --retry-connrefused --retry-all-errors --max-time 5 localhost:8081/nginx-health
+          curl -fsS --max-time 5 localhost:8081/ | grep -q "FieldSync Console"
+          curl -fsS --max-time 5 localhost:8081/readyz | grep -q '"ready":true'
+          curl -fsS --max-time 5 localhost:8081/v1/keys | grep -q Ed25519
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8081/v1/audit/verify)" = 401
+          curl -fsSI --max-time 5 localhost:8081/ | grep -qi '^x-frame-options: deny'
+      - name: Logs
+        if: always()
+        run: docker compose logs --no-color --tail 200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  ci-ok:
+    name: ci-ok (required check)
+    if: always()
+    needs: [python, web, workflows-lint, container, stack]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every job to pass
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: echo "$NEEDS" | jq -e 'all(.[]; .result == "success")'

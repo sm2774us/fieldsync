@@ -1,0 +1,41 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f5f6f8; --foreground: #10151b;
+  --card: #ffffff; --card-foreground: #10151b;
+  --muted: #eceff3; --muted-foreground: #5b6675;
+  --border: #d9dee5; --ring: #b98a00;
+  --primary: #f2b705; --primary-foreground: #111418;
+  --success: #0a6f4a; --warning: #855400; --danger: #b42a34; --info: #245fbf; --accent: #7a5a00;
+}
+.dark {
+  --background: #0b0d10; --foreground: #e8edf2;
+  --card: #12161b; --card-foreground: #e8edf2;
+  --muted: #1a2027; --muted-foreground: #93a0ae;
+  --border: #232a33; --ring: #ffc20e;
+  --primary: #ffc20e; --primary-foreground: #0b0d10;
+  --success: #34d399; --warning: #fbbf24; --danger: #f87171; --info: #60a5fa; --accent: #ffc20e;
+}
+
+@theme inline {
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border); --color-ring: var(--ring);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success); --color-warning: var(--warning);
+  --color-danger: var(--danger); --color-accent: var(--accent); --color-info: var(--info);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --radius-lg: 0.75rem;
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--background); color: var(--foreground); font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+* { border-color: var(--border); }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+::selection { background: color-mix(in srgb, var(--primary) 35%, transparent); }
+@media (prefers-reduced-motion: reduce) { *, ::before, ::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+@keyframes shimmer { 100% { transform: translateX(100%); } }

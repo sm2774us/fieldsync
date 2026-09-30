@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write        # create the GitHub Release
+      packages: write        # push to GHCR
+      id-token: write        # keyless signing / provenance
+      attestations: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build image for pre-publish scan
+        run: docker build -t scan:release .
+      - name: Block release on fixable CRITICAL vulnerabilities
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -e TRIVY_DB_REPOSITORY=public.ecr.aws/aquasecurity/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2 \
+            ghcr.io/aquasecurity/trivy:0.74.0 image --no-progress --ignore-unfixed \
+            --severity CRITICAL --exit-code 1 scan:release
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+            ${{ env.IMAGE }}:latest
+          provenance: mode=max
+          cache-from: type=gha
+      - id: build_web
+        name: Build and push console image
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          push: true
+          tags: |
+            ${{ env.IMAGE }}-web:${{ github.ref_name }}
+            ${{ env.IMAGE }}-web:latest
+          provenance: mode=max
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign images by digest (keyless)
+        run: |
+          cosign sign --yes "$IMAGE@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "$IMAGE-web@${{ steps.build_web.outputs.digest }}"
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: GitHub Release with generated notes + SBOM
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" sbom.spdx.json --generate-notes --verify-tag

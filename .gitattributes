@@ -1,0 +1,83 @@
+# Normalize line endings: LF in the repo. Integrity code hashes and signs bytes, so
+# checkout must never silently rewrite line endings in anything a test or signature depends on.
+* text=auto eol=lf
+
+# Source
+*.py            text eol=lf diff=python
+*.pyi           text eol=lf diff=python
+*.ts            text eol=lf
+*.mts           text eol=lf
+*.js            text eol=lf
+*.mjs           text eol=lf
+*.tsx           text eol=lf
+*.css           text eol=lf
+*.html          text eol=lf diff=html
+*.svg           text eol=lf
+*.inc           text eol=lf
+*.template      text eol=lf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+*.tf            text eol=lf
+*.tfvars        text eol=lf
+*.sql           text eol=lf
+*.md            text eol=lf diff=markdown
+*.mermaid       text eol=lf
+*.json          text eol=lf
+*.jsonl         text eol=lf
+*.toml          text eol=lf
+*.cfg           text eol=lf
+*.ini           text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.txt           text eol=lf
+*.sh            text eol=lf
+Makefile        text eol=lf
+Dockerfile      text eol=lf
+.dockerignore   text eol=lf
+.env.example    text eol=lf
+CODEOWNERS      text eol=lf
+
+# Cross-language hash vector: byte-exact, never normalized.
+# (Python and TypeScript both assert canonical bytes/signatures against this file.)
+tests/vectors/*.json    -text
+
+# Test vectors and runtime state must never be touched, diffed or merged as text
+*.mp4           binary
+*.mov           binary
+*.m4a           binary
+*.wav           binary
+*.bin           binary
+*.db            binary
+*.sqlite        binary
+*.sqlite3       binary
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.pdf           binary
+*.woff2         binary
+*.zip           binary
+*.gz            binary
+*.whl           binary
+
+# Lockfiles / pins: hide from diffs, never auto-merge (regenerate instead)
+web/package-lock.json           -diff -merge linguist-generated=true
+constraints.txt                 -merge linguist-generated=true
+**/.terraform.lock.hcl          -diff -merge linguist-generated=true
+
+# GitHub Linguist: make the language bar reflect real code (Python, TypeScript, HCL)
+docs/**                         linguist-documentation
+*.md                            linguist-documentation
+tests/vectors/**                linguist-generated
+*.tf                            linguist-language=HCL
+*.jsonl                         linguist-language=JSON
+
+# Keep `git archive` exports lean (release tarballs ship code, not repo plumbing)
+.github/                        export-ignore
+docs/                           export-ignore
+.gitattributes                  export-ignore
+.gitignore                      export-ignore
+.dockerignore                   export-ignore
+
+web/test/fixtures/*.json    -text

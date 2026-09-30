@@ -1,0 +1,23 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: ["fieldsync-data:/var/lib/fieldsync"]
+    ports: ["8080:8080"]          # API + Swagger (/docs). Remove in production; the console proxies it.
+  web:
+    build: ./web
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_UPSTREAM: api:8080
+    # No read_only here: the nginx entrypoint renders its config into /etc/nginx/conf.d at start-up.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports: ["8081:8080"]          # FieldSync Console: http://localhost:8081
+volumes:
+  fieldsync-data:

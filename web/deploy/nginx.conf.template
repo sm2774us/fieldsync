@@ -1,0 +1,46 @@
+# Rendered by the nginx image's envsubst entrypoint (only ${API_UPSTREAM} is substituted).
+server {
+  listen 8080;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+  server_tokens off;
+  include /etc/nginx/security-headers.inc;
+
+  gzip on;
+  gzip_types text/css application/javascript application/json image/svg+xml;
+
+  # Liveness for the web tier itself (does not touch the API).
+  location = /nginx-health { access_log off; default_type text/plain; return 200 "ok\n"; }
+
+  # Same-origin proxy to the custody API: no CORS, no tokens in URLs, no cross-site cookies.
+  location ~ ^/(v1/|readyz$|healthz$|metrics$) {
+    proxy_pass http://${API_UPSTREAM};
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Request-ID $request_id;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_request_buffering off;   # stream derivative uploads
+    proxy_buffering off;           # stream evidence downloads
+    client_max_body_size 2g;
+    proxy_read_timeout 600s;
+    proxy_hide_header X-Content-Type-Options;   # the security include sets it once
+    include /etc/nginx/security-headers.inc;
+  }
+
+  # Hashed build assets are immutable.
+  location /assets/ {
+    expires 1y;
+    add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/security-headers.inc;
+    try_files $uri =404;
+  }
+
+  # SPA fallback; index.html must never be cached so deploys take effect immediately.
+  location / {
+    add_header Cache-Control "no-store" always;
+    include /etc/nginx/security-headers.inc;
+    try_files $uri /index.html;
+  }
+}

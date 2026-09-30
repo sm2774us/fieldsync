@@ -1,0 +1,11 @@
+title = "fieldsync"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic cross-language test vector (deterministic test data, no real secrets)"
+paths = [
+  '''tests/vectors/event_vector\.json''',
+  '''web/test/fixtures/event_vector\.json''',   # byte-identical copy, guarded by tests/test_device_and_e2e.py
+]
