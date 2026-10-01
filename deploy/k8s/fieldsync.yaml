@@ -1,0 +1,125 @@
+# Reference manifests. The bundled SQLite store is single-writer, hence replicas: 1 and a single
+# PVC. Scale-out requires the PostgreSQL adapter (see docs/ARCHITECTURE.md, "Known limits").
+# Secrets are created out of band (see deploy/README.md); nothing secret lives in this file.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fieldsync
+  labels: { name: fieldsync, pod-security.kubernetes.io/enforce: restricted }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: fieldsync, namespace: fieldsync }
+spec:
+  serviceName: fieldsync
+  replicas: 1
+  selector: { matchLabels: { app: fieldsync } }
+  template:
+    metadata: { labels: { app: fieldsync } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: api
+          image: ghcr.io/sm2774us/fieldsync:1.0.0   # pin by digest in production
+          ports: [{ containerPort: 8080 }]
+          envFrom: [{ secretRef: { name: fieldsync-secrets } }]
+          env: [{ name: SYNC_DATA_DIR, value: /var/lib/fieldsync }]
+          readinessProbe: { httpGet: { path: /readyz, port: 8080 }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 15 }
+          resources: { requests: { cpu: 250m, memory: 256Mi }, limits: { memory: 1Gi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/fieldsync }
+            - { name: tmp, mountPath: /tmp }
+      volumes: [{ name: tmp, emptyDir: {} }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec: { accessModes: [ReadWriteOnce], resources: { requests: { storage: 50Gi } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: fieldsync, namespace: fieldsync }
+spec: { selector: { app: fieldsync }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: fieldsync-web, namespace: fieldsync }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: fieldsync-web } }
+  template:
+    metadata: { labels: { app: fieldsync-web } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: web
+          image: ghcr.io/sm2774us/fieldsync-web:1.0.0   # pin by digest in production
+          ports: [{ containerPort: 8080 }]
+          env: [{ name: API_UPSTREAM, value: "fieldsync.fieldsync.svc.cluster.local:80" }]
+          readinessProbe: { httpGet: { path: /nginx-health, port: 8080 }, periodSeconds: 10 }
+          resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 256Mi } }
+          # The nginx entrypoint renders its config into /etc/nginx/conf.d at start-up, so the root
+          # filesystem cannot be read-only here (same reason as docker-compose.yml).
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: fieldsync-web, namespace: fieldsync }
+spec: { selector: { app: fieldsync-web }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+# Terminate TLS at your ingress (cluster specific, not included): devices and browsers must use HTTPS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: api-default-deny-then-allow, namespace: fieldsync }
+spec:
+  podSelector: { matchLabels: { app: fieldsync } }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: fieldsync-web } }
+        - namespaceSelector: { matchLabels: { name: ingress } }
+      ports: [{ port: 8080 }]
+  egress:
+    - to: [{ namespaceSelector: {} }]   # DNS; if AI enrichment is enabled, restrict to an egress proxy for api.anthropic.com
+      ports: [{ port: 53, protocol: UDP }, { port: 443 }]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: scan-checkpoint-verify, namespace: fieldsync }
+spec:
+  schedule: "17 */6 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
+          # The volume is ReadWriteOnce: run on the same node as the API pod that already mounts it.
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector: { matchLabels: { app: fieldsync } }
+          containers:
+            - name: ops
+              image: ghcr.io/sm2774us/fieldsync:1.0.0
+              # `checkpoint` prints the signed checkpoint as JSON. Shipping it to the WORM anchor bucket
+              # (deploy/terraform) is a deployment step that is NOT automated here (see RUNBOOK).
+              command: ["sh", "-c", "fieldsync-admin scan && fieldsync-admin checkpoint && fieldsync-admin verify-audit"]
+              envFrom: [{ secretRef: { name: fieldsync-secrets } }]
+              env: [{ name: SYNC_DATA_DIR, value: /var/lib/fieldsync }]
+              securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+              volumeMounts:
+                - { name: data, mountPath: /var/lib/fieldsync }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - { name: data, persistentVolumeClaim: { claimName: data-fieldsync-0 } }
+            - { name: tmp, emptyDir: {} }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: fieldsync, namespace: fieldsync }
+spec: { maxUnavailable: 0, selector: { matchLabels: { app: fieldsync } } }

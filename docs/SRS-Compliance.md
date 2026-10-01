@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Subject** | Backend, reference device, browser sync engine, operator console, image, CI and scripts |
-| **Measured against** | `docs/SRS.md` v1.0 (70 requirements) |
+| **Measured against** | `docs/SRS.md` v1.0 (83 requirements) |
 | **Method** | Requirement-by-requirement review, automated results from the authoring environment, and direct exercise of the API, the nginx tier and the developer scripts |
 | **Not verified** | Anything needing Docker, GitHub Actions, a real browser, a screen reader, Windows or WSL, production databases, or load (see §5) |
 
@@ -18,23 +18,26 @@
 ### Tally
 | Status | Count |
 |---|---:|
-| ✅ Met | 48 |
-| 🟡 Met in code, unverified here | 16 |
-| 🟠 Partially met | 6 |
+| ✅ Met | 58 |
+| 🟡 Met in code, unverified here | 18 |
+| 🟠 Partially met | 7 |
 | ❌ Not met | 0 |
-| **Total** | **70** |
+| **Total** | **83** |
 
 **Legend.** ✅ implemented and covered by a check that ran green here · 🟡 implemented; needs a browser, Docker, CI run or human review · 🟠 partially met, gap stated · ❌ not met.
 
 ### Evidence that ran green
 | Check | Result |
 |---|---|
-| ruff check and format, mypy `--strict` | 0 issues (14 source files) |
-| pytest | **38 passing**, coverage **95.6 %** against an 88 % gate |
+| ruff check and format, mypy `--strict` | 0 issues (16 source files) |
+| pytest | **60 passing**, coverage **96.1 %** against an 88 % gate |
 | End-to-end scenario (`fieldsync-admin demo`) | offline authoring, lossy link, exactly 30 events in order, replayed key, conflict resolved, tamper quarantined, retry authorised, audit chain verified |
 | ESLint (React-hooks rules, raw-HTML ban), `tsc --strict` | 0 errors |
-| Vitest | **74 passing** in 6 files; coverage 90 % lines / 90 % functions / 80 % branches (gates 80/75/70) |
-| Production build | JS 721 kB raw, **223.9 kB gzip** |
+| Triage evals (`evals/run.py --rules-only`) | 15/15 golden cases, including a prompt-injection case |
+| TypeScript SDK (`npm test`, `tsc --strict`) | 9 passing, event hash identical to the Python vector |
+| Kubernetes manifests parsed; Terraform parsed as HCL | syntax only; not applied or validated by the tools that matter |
+| Vitest | **81 passing** in 7 files; coverage 90 % lines / 90 % functions / 80 % branches (gates 80/75/70) |
+| Production build | JS 724 kB raw, **224.8 kB gzip** |
 | `bash scripts/check.sh --native` on Ubuntu 24.04 (Python 3.12, Node 22) | passed end to end |
 | Web build and tests from a directory containing only `web/` (Docker build context) | passed |
 | `actionlint` on all workflows | clean |
@@ -152,7 +155,30 @@
 | FR-UI-12 | ✅ | `app.test` |
 | FR-UI-13 | 🟡 | Banner, pill and `ErrorState` implemented; request ID mapping tested in `api.test` |
 
-### 3.8 Non-functional requirements (NFR)
+### 3.8 Optional advisory triage (FR-AI)
+
+| ID | Status | Evidence or gap |
+|---|:-:|---|
+| FR-AI-01 | ✅ | `test_rules_work_without_any_ai`; triage endpoints are read-only plus one audit row (`test_triage_endpoints_audit_and_permissions`) |
+| FR-AI-02 | ✅ | `test_ai_failure_degrades_to_rules` (500, refusal, bad JSON, network error); `test_ai_is_off_unless_enabled_and_keyed` |
+| FR-AI-03 | ✅ | `test_llm_cannot_lower_severity_or_invent_actions`; `evals/run.py` safety invariants |
+| FR-AI-04 | ✅ | `test_prompt_minimisation_blocks_payloads_and_free_text`; injection case in `evals/cases.jsonl` |
+| FR-AI-05 | ✅ | `test_ai_enabled_service_enriches_and_audits_provenance`; `_advise` calls the model before opening the transaction |
+| FR-AI-06 | 🟡 | `evals/run.py --rules-only` 15/15 and `test_evals_baseline_passes` ran green; `ai-evals.yml` is `actionlint`-clean but the LLM path was never run against a real model |
+| FR-AI-07 | ✅ | `advisory.test.tsx` (4 tests) |
+| FR-AI-08 | ✅ | `test_mcp_server_registers_read_only_tools` (exact tool set) |
+
+### 3.9 SDK and deployment (FR-SDK, FR-DEP)
+
+| ID | Status | Evidence or gap |
+|---|:-:|---|
+| FR-SDK-01 | ✅ | `sdk-ts/test/client.test.ts` (9 tests: vector, ordering, 5xx retry, lost-ack, corruption, gap, compaction, encrypted file log) |
+| FR-SDK-02 | ✅ | SDK tests "never invents history" and "never reused" |
+| FR-DEP-01 | 🟡 | Manifests parse and were reviewed (`yaml` load, 8 objects); never applied to a cluster; nginx web container cannot use a read-only root filesystem |
+| FR-DEP-02 | 🟠 | Parsed as HCL only; `terraform validate`/`plan` not run; the service does not yet export events or upload checkpoints to these buckets |
+| FR-DEP-03 | ✅ | `test_cli_scan_and_checkpoint` |
+
+### 3.10 Non-functional requirements (NFR)
 
 | ID | Status | Evidence or gap |
 |---|:-:|---|
@@ -161,9 +187,9 @@
 | NFR-REL-02 | 🟡 | `ErrorBoundary`; `/readyz` 503 mapping tested |
 | NFR-CAP-01 | 🟠 | Limits enforced and a 500-event backlog tested; throughput/latency never measured; SQLite is single-writer (reference only) |
 | NFR-A11Y-01 | 🟠 | Radix primitives, landmarks, labelled controls, `role="status"`/`log`, reduced motion, text contrast by computation; no axe or screen-reader audit |
-| NFR-PERF-01 | ✅ | Measured 223.9 kB gzip |
+| NFR-PERF-01 | ✅ | Measured 224.8 kB gzip |
 | NFR-DEV-01 | 🟡 | Workflows written and `actionlint`-clean; not run on GitHub |
-| NFR-DEV-02 | ✅ | Python 88 % gate (measured 95.6 %); web gate 80/75/80/70 (measured 90 % lines, 90 % functions) |
+| NFR-DEV-02 | ✅ | Python 88 % gate (measured 96.1 %); web gate 80/75/80/70 (measured 90 % lines, 90 % functions) |
 | NFR-DEV-03 | ✅ | `test_cross_language_event_hash_vector`, `lib.test`, `test_web_copy_of_the_vector_is_identical`; gitleaks allowlist for both copies verified |
 | NFR-DEV-04 | ✅ | Reproduced by building and testing from a copy containing only `web/` |
 | NFR-DEV-05 | 🟠 | Ubuntu native executed (`check.sh --native`, `dev.sh`); WSL and Windows scripts not executed; no Dependabot config exists |
@@ -176,11 +202,13 @@
 5. **The console cannot list arbitrary history**; audit paging is oldest to newest with "load all".
 6. **Compaction can under-report record versions**: the browser Field app derives base versions from retained events, so aggressive compaction can cause reviewable (never silent) conflicts. Default keeps the newest 200 acknowledged events.
 7. **Wireframes are Markdown drawings**, not Figma artboards, and were not compared to a rendered build.
-8. **No AI component.** Deliberate: the workflow is deterministic and needs none.
+8. **AI is optional and advisory only.** Off by default; never gates data; the LLM path has not been run against a real model by the author.
 
 ## 5. Items not executed in this environment
 * `docker build` of either image, `docker compose up`, and the `stack` job's probes.
-* Any GitHub Actions run (`ci.yml`, `security.yml`, `release.yml`); `actionlint` validated syntax only.
+* Any GitHub Actions run (`ci.yml`, `security.yml`, `release.yml`, `ai-evals.yml`); `actionlint` validated syntax only.
+* The LLM-enriched triage path against a real model (only a mocked transport was exercised).
+* `kubectl apply`, `kubeconform`, `terraform validate/plan` and any cloud account.
 * A real browser: rendering, layout at 360 px, focus order, motion, IndexedDB durability across real restarts, storage quota behaviour.
 * Accessibility (axe, screen reader, keyboard-only walkthrough).
 * Windows 11 and WSL execution; `setup-linux.sh --install`; `check.sh --docker`.

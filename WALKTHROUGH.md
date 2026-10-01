@@ -97,14 +97,14 @@ Then follow Part 2 steps 5 to 9. All checks: `bash scripts/check.sh` (add `--doc
 
 | Job | What it proves |
 |---|---|
-| `python` (3.12, 3.13) | ruff, mypy strict, 38 tests with coverage gate, the end-to-end demo |
-| `web console` | ESLint, `tsc --strict`, 74 tests with coverage gate, production build |
+| `python` (3.12, 3.13) | ruff, mypy strict, 60 tests with coverage gate, triage evals, the end-to-end demo |
+| `web console` | ESLint, `tsc --strict`, 81 tests with coverage gate, production build |
 | `workflows-lint` | `actionlint` on every workflow |
 | `container` | API image builds, starts hardened (read-only, no capabilities), answers `/readyz` and `/metrics` |
 | `full stack (compose)` | API + console start, the console serves the app and proxies the API, headers present |
 | `ci-ok` | Required check: passes only if every job above passed |
 
-`security.yml` adds CodeQL, `pip-audit`, `npm audit`, gitleaks and dependency review. `release.yml` (on a `vX.Y.Z` tag) builds, scans, signs and attaches an SBOM. **No bot opens pull requests.**
+`ai-evals.yml` scores the optional AI advisory on a schedule (skipped safely without a key). `security.yml` adds CodeQL, `pip-audit`, `npm audit`, gitleaks and dependency review. `release.yml` (on a `vX.Y.Z` tag) builds, scans, signs and attaches an SBOM. **No bot opens pull requests.**
 
 ## Part 5 · Publish to GitHub
 
@@ -112,13 +112,19 @@ New repository (this project is delivered as a full tree):
 ```bash
 git init -b main && git add -A && git commit -m "feat: FieldSync offline-first device sync"
 gh repo create sm2774us/fieldsync --private --source . --push
-bash scripts/set-owner.sh sm2774us          # replaces the your-org placeholders (CODEOWNERS), then commit
+bash scripts/set-owner.sh sm2774us          # replaces the sm2774us placeholders (CODEOWNERS), then commit
 ```
 Adding it to an existing repository as a feature branch instead:
 ```bash
 git switch -c feature/fieldsync && git add -A && git commit -m "feat: FieldSync" && git push -u origin feature/fieldsync
 ```
 Then open the pull request. Set **ci-ok** as the only required status check.
+
+## Part 4b · Advisory, SDK and deployment extras
+* **Advisory.** On a Quarantine, Conflict or (offline/backlog/storage) Alert dialog press **Get advisory**. It works with no setup (rules). To let a model add detail: put `SYNC_AI_ENABLED=1`, `SYNC_ANTHROPIC_API_KEY=...` in `.env` and restart; the badge then reads "rules + AI". Remove either to turn it off.
+* **Evals.** `python evals/run.py --rules-only` (inside the venv; run it from a source checkout; evals are not in the container image).
+* **SDK.** `cd sdk-ts && npm ci && npm test` (Node 22+).
+* **Deploy references.** See `deploy/README.md`. Not applied by the author.
 
 ## Troubleshooting
 | Symptom | Cause and fix |

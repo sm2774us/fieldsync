@@ -387,7 +387,7 @@ KIND                                    RECORD         FROM            BASED ON 
 | [ Record decision ]  ->  [ Confirm and record ]                           |
 +---------------------------------------------------------------------------+
 ```
-**Purpose** Let a person settle divergent edits **with both sides in view**. **Role** The escape valve that lets append-only sync tolerate mutable data safely: nothing is merged silently. **You can** compare current vs proposed · keep current or apply proposed as a **new version** (history keeps both) · must write a reason · confirm with a second click. *Apply* is offered only for out-of-date edits; duplicate creates and orphan notes can only be dismissed. **API** `GET /v1/conflicts`, `POST /v1/conflicts/{id}/resolve`. **Who** `conflicts:read`; deciding needs `conflicts:review`.
+**Purpose** Let a person settle divergent edits **with both sides in view**. **Role** The escape valve that lets append-only sync tolerate mutable data safely: nothing is merged silently. **You can** request an **advisory** · compare current vs proposed · keep current or apply proposed as a **new version** (history keeps both) · must write a reason · confirm with a second click. *Apply* is offered only for out-of-date edits; duplicate creates and orphan notes can only be dismissed. **API** `GET /v1/conflicts`, `POST /v1/conflicts/{id}/resolve`. **Who** `conflicts:read`; deciding needs `conflicts:review`.
 
 ### S13 · Quarantine queue and S14 · review dialog
 ```text
@@ -409,7 +409,7 @@ REASON           DEVICE / SEQ        EVENT         RECEIVED   STATUS
 | The received bytes stay preserved either way.                             |
 +---------------------------------------------------------------------------+
 ```
-**Purpose** The human step for an event the machine refused. **Role** The answer to "what if the hash does not match?": preserve, block, alert, review, audit. **You can** read why it failed · for hash mismatches **see the hash recomputed in your own browser** next to the claimed one · read the event exactly as received · authorise a retry or skip the sequence (only the next unacknowledged number can be skipped) · must give a reason and confirm. The device is released immediately. **API** `GET /v1/quarantine`, `POST /v1/quarantine/{id}/disposition`. **Who** `quarantine:read`; deciding needs `quarantine:review`.
+**Purpose** The human step for an event the machine refused. **Role** The answer to "what if the hash does not match?": preserve, block, alert, review, audit. **You can** request an **advisory** (plain-words explanation and suggested next steps; rules, optionally enriched by AI, advice only) · read why it failed · for hash mismatches **see the hash recomputed in your own browser** next to the claimed one · read the event exactly as received · authorise a retry or skip the sequence (only the next unacknowledged number can be skipped) · must give a reason and confirm. The device is released immediately. **API** `GET /v1/quarantine`, `POST /v1/quarantine/{id}/disposition`. **Who** `quarantine:read`; deciding needs `quarantine:review`.
 
 ### S15 · Alerts and S16 · alert dialog
 ```text
@@ -498,13 +498,17 @@ fieldsync/
 ├── src/fieldsync/     app.py (API) · service.py (ingest, quarantine, conflicts, outbox, fleet)
 │                      db.py (schema + immutability triggers) · audit.py (hash chain) · auth.py (roles)
 │                      device.py (reference offline device) · simulate.py (demo/seed) · cli.py
-├── tests/             38 tests · vectors/event_vector.json (shared with the web)
+│                      triage.py (rules + optional AI advisory) · mcp_server.py (read-only)
+├── tests/             60 tests · vectors/event_vector.json (shared with the web and the SDK)
 ├── web/src/lib/sync/  engine.ts (sync engine) · stores.ts (IndexedDB + AES-GCM) · factory.ts
-├── web/src/pages/     one file per screen family · web/test/  74 tests
+├── web/src/pages/     one file per screen family · web/test/  81 tests
+├── sdk-ts/            Node/TypeScript device SDK · 9 tests
+├── evals/             golden triage cases + harness (rules baseline gates CI)
+├── deploy/            k8s manifests · terraform Object-Lock buckets
 ├── web/deploy/        nginx template + security headers · web/Dockerfile
 ├── scripts/           Windows (check.cmd) and Linux/WSL (setup-linux, check, dev, dev-token, set-owner)
-├── .github/workflows/ ci.yml · security.yml · release.yml
-└── docs/              this file · SRS.md · SRS-Compliance.md
+├── .github/workflows/ ci.yml · security.yml · release.yml · ai-evals.yml
+└── docs/              this file · SRS · SRS-Compliance · ARCHITECTURE · THREAT_MODEL · COMPLIANCE · DESIGN_ANSWER · RUNBOOK
 ```
 
 ## 10. Design system
@@ -523,14 +527,15 @@ Components are shadcn-style (owned source on Radix + Tailwind): Button, Card, Ba
 | Layer | Result at authoring time |
 |---|---|
 | ruff, mypy `--strict`; ESLint (raw-HTML ban), `tsc --strict` | 0 issues |
-| Python: 38 tests (ordering, idempotency, quarantine, conflicts, outbox recovery, immutability, tamper detection, RBAC, fleet, metrics, device, CLI) | pass, 95.6 % coverage |
-| Web: 74 tests (engine incl. lost-ack, gap, rejection, compaction, 500 backlog; encrypted IndexedDB store; API mapping; sign-in, role menus; **offline-to-acknowledged journey**) | pass, about 90 % lines |
+| Python: 60 tests (ordering, idempotency, quarantine, conflicts, outbox recovery, immutability, tamper detection, RBAC, fleet, metrics, device, CLI) | pass, 95.6 % coverage |
+| Web: 81 tests (engine incl. lost-ack, gap, rejection, compaction, 500 backlog; encrypted IndexedDB store; API mapping; sign-in, role menus; **offline-to-acknowledged journey**) | pass, about 90 % lines |
 | Cross-language: identical event hash from a shared vector (non-ASCII, null) | pass on both sides |
 | `fieldsync-admin demo` | 30 offline events → exactly 30 on the server, in order; replay; conflict; tamper; audit verified |
+| Triage evals: 15 golden cases incl. prompt injection; TypeScript SDK 9 tests | pass |
 | Not automated yet | browser end-to-end, accessibility scan, load, crash-injection |
 
 ## 12. Shipping
-PR → `ci-ok` requires: python 3.12/3.13, web (lint, types, tests, build), workflow lint, API container smoke, and a **full-stack compose job** (API + console, proxy probed). Merge to `main`; tag `vX.Y.Z` → release builds API and console images, signs them (cosign, keyless), attaches SBOM and provenance. The console image is non-root nginx with a strict CSP and a same-origin proxy; no CORS, no third-party origins.
+PR → `ci-ok` requires: python 3.12/3.13 (with triage evals), TypeScript SDK, web (lint, types, tests, build), workflow lint, API container smoke, and a **full-stack compose job** (API + console, proxy probed). Merge to `main`; tag `vX.Y.Z` → release builds API and console images, signs them (cosign, keyless), attaches SBOM and provenance. The console image is non-root nginx with a strict CSP and a same-origin proxy; no CORS, no third-party origins.
 
 ## 13. Running it
 | Situation | Command |
@@ -544,13 +549,13 @@ PR → `ci-ok` requires: python 3.12/3.13, web (lint, types, tests, build), work
 To try the Field app: issue a **device** token whose subject equals a registered, activated device ID (register with admin A, activate with admin B), sign in, and use **Simulate offline**.
 
 ## 14. Limits and next steps
-SQLite is a single-writer reference store (production: PostgreSQL); triggers are tamper-*evident*, not tamper-*proof* (production: WORM/object lock and separate roles); TLS and server-side encryption are deployment work; device auth is a bearer token, not hardware-attested keys or mTLS; the browser key protects data at rest, not against malware running as the user; base versions in the browser derive from retained events, so heavy compaction can cause reviewable conflicts; no listing endpoint for arbitrary event search; English only; accessibility and cross-browser checks pending.
+The advisory AI path has only been exercised against a mocked model; SQLite is a single-writer reference store (production: PostgreSQL); triggers are tamper-*evident*, not tamper-*proof* (production: WORM/object lock and separate roles); TLS and server-side encryption are deployment work; device auth is a bearer token, not hardware-attested keys or mTLS; the browser key protects data at rest, not against malware running as the user; base versions in the browser derive from retained events, so heavy compaction can cause reviewable conflicts; no listing endpoint for arbitrary event search; English only; accessibility and cross-browser checks pending.
 
 ## 15. FAQ and glossary
 **Why not just retry until it works?** Retrying alone duplicates data. Idempotency keys plus the cursor make retries harmless.
 **Why sequence numbers *and* hashes?** Numbers prove order and completeness; hashes prove content.
 **Why block the device on a bad event instead of skipping it?** Skipping silently would hide a possible integrity or security problem and break ordering. A person decides, and the decision is recorded.
 **Can the server change an event?** No. Events are immutable; state is a projection built from them.
-**Is there any AI?** No. Deterministic rules decide everything.
+**Is there any AI?** Optionally, and only as advice. Rules decide everything (quarantine, blocking, conflicts, alerts). An advisory panel on the quarantine, conflict and alert dialogs explains an item and suggests next steps; an optional model may add detail but can never lower severity, invent actions, see payloads or run inside a transaction. It is off unless `SYNC_AI_ENABLED=1` and a key are set.
 **What if two devices' clocks disagree?** Ordering uses sequence numbers, not clocks; both device and server times are stored.
 **Glossary:** *cursor* highest sequence the server holds for a device · *ack* "committed through N" · *idempotency key* label that makes a repeat safe · *outbox* durable to-do list of projections · *quarantine* holding pen for failed events · *projection* current state derived from events · *heartbeat* device's "I'm alive, here's my backlog" message.

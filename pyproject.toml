@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = ["mcp>=1.2,<3"]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
@@ -37,7 +38,7 @@ exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "evals"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "SIM", "C4", "PL", "RUF"]
@@ -45,7 +46,9 @@ ignore = ["E501", "PLR0913", "PLR0917", "PLR2004", "PLR0912", "PLR0915", "PLR091
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S105", "S106", "S108", "S603", "RUF015", "C416"]
+"evals/*" = ["S101"]
 "src/fieldsync/device.py" = ["S311"]
+"src/fieldsync/triage.py" = ["C416"]
 "src/fieldsync/simulate.py" = ["S311"]
 
 [tool.mypy]
@@ -53,3 +56,8 @@ python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# Optional dependency whose typing differs across mcp versions; covered by a test when installed.
+module = "fieldsync.mcp_server"
+ignore_errors = true

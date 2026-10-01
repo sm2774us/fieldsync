@@ -90,6 +90,9 @@ describe("request shapes for every endpoint the console uses", () => {
     ["cursor", () => api.cursor("unit-1"), "GET", "/v1/devices/unit-1/cursor"],
     ["heartbeat", () => api.heartbeat("unit-1", { queue_depth: 1 }), "POST", "/v1/devices/unit-1/heartbeat"],
     ["keys", () => api.keys(), "GET", "/v1/keys"],
+    ["triage q", () => api.triage("quarantine", "qt_1"), "POST", "/v1/quarantine/qt_1/triage"],
+    ["triage c", () => api.triage("conflicts", "cf_1"), "POST", "/v1/conflicts/cf_1/triage"],
+    ["triage a", () => api.triage("alerts", "al_1"), "POST", "/v1/alerts/al_1/triage"],
   ];
   it.each(cases)("%s", async (_n, call, method, path) => {
     fetchMock.mockResolvedValue(jsonResponse({ devices: [], events: [], records: [], conflicts: [], items: [], alerts: [] }));

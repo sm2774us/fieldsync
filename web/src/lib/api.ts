@@ -1,6 +1,6 @@
 import { useSession } from "@/store/session";
 import type {
-  Alert, AuditEntry, ChainStatus, Conflict, Device, Ready, RecordDetail, RecordSummary, ServerEvent,
+  Advisory, Alert, AuditEntry, ChainStatus, Conflict, Device, Ready, RecordDetail, RecordSummary, ServerEvent,
   QuarantineItem, ServiceKey,
 } from "./types";
 
@@ -104,6 +104,8 @@ export const api = {
   quarantine: (status: "open" | "retry_authorized" | "skip_authorized") => json<{ items: QuarantineItem[] }>("/v1/quarantine", { query: { status } }).then((r) => r.items),
   disposition: (id: string, decision: "retry_authorized" | "skip_authorized", note: string) =>
     post<{ quarantine_id: string; decision: string }>(`/v1/quarantine/${enc(id)}/disposition`, { json: { decision, note } }),
+
+  triage: (kind: "quarantine" | "conflicts" | "alerts", id: string) => post<Advisory>(`/v1/${kind}/${enc(id)}/triage`),
 
   alerts: (status: "open" | "acknowledged") => json<{ alerts: Alert[] }>("/v1/alerts", { query: { status } }).then((r) => r.alerts),
   ackAlert: (id: string) => post<{ alert_id: string; status: string }>(`/v1/alerts/${enc(id)}/ack`),

@@ -3,9 +3,9 @@ export type Role = "device" | "supervisor" | "reviewer" | "auditor" | "admin";
 /** Mirror of the service's PERMISSIONS table. UI gating is convenience only; the API enforces. */
 export const PERMISSIONS: Record<Role, readonly string[]> = {
   device: ["sync:write", "sync:cursor", "sync:heartbeat"],
-  supervisor: ["fleet:read", "fleet:scan", "events:read", "records:read", "alerts:read", "alerts:ack", "conflicts:read", "quarantine:read"],
-  reviewer: ["records:read", "events:read", "conflicts:read", "conflicts:review", "quarantine:read", "quarantine:review"],
-  auditor: ["audit:read", "audit:verify", "fleet:read", "events:read", "alerts:read", "alerts:ack", "conflicts:read", "quarantine:read"],
+  supervisor: ["fleet:read", "fleet:scan", "events:read", "records:read", "alerts:read", "alerts:ack", "conflicts:read", "triage:run", "quarantine:read"],
+  reviewer: ["records:read", "events:read", "conflicts:read", "conflicts:review", "triage:run", "quarantine:read", "quarantine:review"],
+  auditor: ["audit:read", "audit:verify", "fleet:read", "events:read", "alerts:read", "alerts:ack", "conflicts:read", "triage:run", "quarantine:read"],
   admin: ["device:register", "device:activate", "device:revoke", "principal:revoke", "audit:checkpoint"],
 };
 

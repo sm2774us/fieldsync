@@ -1,0 +1,17 @@
+{
+  "name": "@fieldsync/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript/Node SDK: append-only encrypted device log and resumable, idempotent sync for FieldSync",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "main": "src/client.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  },
+  "license": "Apache-2.0"
+}

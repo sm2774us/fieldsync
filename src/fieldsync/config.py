@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 
@@ -21,10 +21,16 @@ class Settings:
     )
     backlog_alert: int = 1000  # device-reported queue depth that raises an alert
     low_storage_ratio: float = 0.10
+    ai_enabled: bool = False  # optional advisory enrichment; the workflow never depends on it
+    ai_model: str = "claude-sonnet-5-5"
+    ai_base_url: str = "https://api.anthropic.com"
+    ai_api_key: str = field(default="", repr=False)
+    ai_timeout_s: float = 8.0
 
     @classmethod
     def from_env(cls) -> Settings:
         e = os.environ
+        key = e.get("SYNC_ANTHROPIC_API_KEY", "")
         return cls(
             data_dir=Path(e.get("SYNC_DATA_DIR", "./data")),
             signing_key_hex=e.get("SYNC_SIGNING_KEY", ""),
@@ -32,6 +38,9 @@ class Settings:
             max_batch_events=int(e.get("SYNC_MAX_BATCH_EVENTS", 500)),
             offline_after_s=int(e.get("SYNC_OFFLINE_AFTER_S", 3600)),
             backlog_alert=int(e.get("SYNC_BACKLOG_ALERT", 1000)),
+            ai_enabled=e.get("SYNC_AI_ENABLED", "0") == "1" and bool(key),
+            ai_model=e.get("SYNC_AI_MODEL", "claude-sonnet-5-5"),
+            ai_api_key=key,
         )
 
     def with_dev_secrets(self) -> Settings:

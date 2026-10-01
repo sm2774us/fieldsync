@@ -39,6 +39,7 @@ PERMISSIONS: dict[Role, frozenset[str]] = {
             "alerts:read",
             "alerts:ack",
             "conflicts:read",
+            "triage:run",
             "quarantine:read",
         }
     ),  # fmt: skip
@@ -48,6 +49,7 @@ PERMISSIONS: dict[Role, frozenset[str]] = {
             "events:read",
             "conflicts:read",
             "conflicts:review",
+            "triage:run",
             "quarantine:read",
             "quarantine:review",
         }
@@ -61,6 +63,7 @@ PERMISSIONS: dict[Role, frozenset[str]] = {
             "alerts:read",
             "alerts:ack",
             "conflicts:read",
+            "triage:run",
             "quarantine:read",
         }
     ),  # fmt: skip

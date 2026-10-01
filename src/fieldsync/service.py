@@ -26,6 +26,7 @@ from .db import Database
 from .errors import Conflict, Forbidden, NotFound, SyncError, ValidationFailed
 from .metrics import Metrics
 from .models import BatchIn, EventIn, Heartbeat, event_hash
+from .triage import Advisory, Triage
 
 log = logging.getLogger("fieldsync")
 Clock = Callable[[], int]
@@ -76,9 +77,10 @@ def validate_event(e: EventIn) -> str | None:
 
 class SyncService:
     def __init__(self, settings: Settings, db: Database, audit: AuditLog, signer: Signer,
-                 clock: Clock, metrics: Metrics) -> None:  # fmt: skip
+                 clock: Clock, metrics: Metrics, triage: Triage | None = None) -> None:  # fmt: skip
         self.s, self.db, self.audit, self.signer, self.clock, self.metrics = (
             settings, db, audit, signer, clock, metrics)  # fmt: skip
+        self.triage = triage or Triage(None)
         m = metrics
         m.gauge("sync_outbox_pending", lambda: float(self._count("outbox", "status='pending'")))
         m.gauge("sync_open_conflicts", lambda: float(self._count("conflicts", "status='open'")))
@@ -607,6 +609,73 @@ class SyncService:
 
     def require_audit(self, p: Principal, perm: str, ctx: Ctx) -> None:
         self._require(p, perm, ctx)
+
+    # ---- advisory triage (read-only; never gates the workflow; never inside a transaction) ----
+    def _advise(
+        self, p: Principal, kind: str, oid: str, ctx_in: dict[str, Any], ctx: Ctx
+    ) -> Advisory:
+        adv = self.triage.assess(ctx_in)  # network call happens here, outside any transaction
+        with self.db.tx() as c:
+            self.audit.append(c, self._actor(p), "triage.advisory", kind, oid,
+                              {"category": adv.category, "severity": adv.severity,
+                               "source": adv.source, "model": adv.model,
+                               "prompt_sha256": adv.prompt_sha256}, ctx=ctx)  # fmt: skip
+        return adv
+
+    def triage_quarantine(self, p: Principal, qid: str, ctx: Ctx) -> Advisory:
+        self._require(p, "triage:run", ctx)
+        q = self.db.one("SELECT * FROM quarantine WHERE quarantine_id=?", (qid,))
+        if not q:
+            raise NotFound("quarantine item not found")
+        ev = {
+            "schema_rejected": "schema_rejected",
+            "sequence_reuse_mismatch": "sequence_reuse",
+        }.get(q["reason"], "hash_mismatch")
+        row = self.db.one("SELECT COUNT(*) n FROM quarantine WHERE device_id=? AND quarantine_id!=?",
+                          (q["device_id"], qid))  # fmt: skip
+        prior = int(row["n"]) if row else 0
+        sv = json.loads(q["event_json"]).get("schema_version")
+        info: dict[str, Any] = {"event": ev, "device_prior_incidents": prior, "seq": q["seq"],
+                                "device_id": q["device_id"], "quarantine_id": qid}  # fmt: skip
+        if isinstance(sv, int):
+            info["schema_version"] = sv
+        return self._advise(p, "quarantine", qid, info, ctx)
+
+    def triage_conflict(self, p: Principal, cid: str, ctx: Ctx) -> Advisory:
+        self._require(p, "triage:run", ctx)
+        r = self.db.one("SELECT * FROM conflicts WHERE conflict_id=?", (cid,))
+        if not r:
+            raise NotFound("conflict not found")
+        info = {"event": "conflict", "conflict_kind": r["kind"], "device_id": r["device_id"],
+                "seq": r["seq"], "conflict_id": cid}  # fmt: skip
+        return self._advise(p, "conflict", cid, info, ctx)
+
+    def triage_alert(self, p: Principal, aid: str, ctx: Ctx) -> Advisory:
+        self._require(p, "triage:run", ctx)
+        a = self.db.one("SELECT * FROM alerts WHERE alert_id=?", (aid,))
+        if not a:
+            raise NotFound("alert not found")
+        d = json.loads(a["detail_json"])
+        info: dict[str, Any]
+        if a["kind"] == "DEVICE_OFFLINE":
+            seen = d.get("last_seen_ms") or self.clock()
+            info = {
+                "event": "device_offline",
+                "hours_offline": max(0, (self.clock() - seen) // 3_600_000),
+            }
+        elif a["kind"] == "BACKLOG_HIGH":
+            info = {"event": "backlog_high", "queue_depth": d.get("queue_depth", 0)}
+        elif a["kind"] == "STORAGE_LOW":
+            info = {
+                "event": "storage_low",
+                "storage_free_ratio": d.get("free", 0) / max(1, d.get("total", 1)),
+            }
+        else:
+            raise ValidationFailed(
+                f"no advisory is defined for {a['kind']} alerts; use the quarantine or conflict advisory"
+            )
+        info["device_id"] = a["object_id"] or ""
+        return self._advise(p, "alert", aid, info, ctx)
 
 
 __all__ = ["SyncError", "SyncService", "validate_event"]

@@ -52,6 +52,9 @@ jobs:
           pip install pip-audit
           pip-audit -r constraints.txt --strict | tee audit.txt
           { echo '### pip-audit'; echo '```'; cat audit.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: npm audit (SDK)
+        working-directory: sdk-ts
+        run: npm audit --audit-level=high
       - name: npm audit (web console)
         working-directory: web
         run: npm audit --audit-level=high

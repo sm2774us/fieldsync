@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Callable
 from typing import Annotated, Any
 
+import httpx
 from fastapi import Depends, FastAPI, Header, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -19,16 +20,24 @@ from .errors import AuthError, SyncError
 from .metrics import Metrics
 from .models import BatchIn, DeviceRegistration, Disposition, Heartbeat, Resolution
 from .service import SyncService
+from .triage import LLMTriage, Triage
 
 log = logging.getLogger("fieldsync")
 
 
-def build_service(settings: Settings, clock: Callable[[], int] | None = None) -> SyncService:
+def build_service(settings: Settings, clock: Callable[[], int] | None = None,
+                  http: httpx.Client | None = None) -> SyncService:  # fmt: skip
     clock = clock or (lambda: int(time.time() * 1000))
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     db = Database(str(settings.data_dir / "fieldsync.db"))
     signer = Signer(settings.signing_key_hex)
-    svc = SyncService(settings, db, AuditLog(db, signer, clock), signer, clock, Metrics())
+    llm = None
+    if settings.ai_enabled:  # optional; off unless SYNC_AI_ENABLED=1 and a key is present
+        llm = LLMTriage(http or httpx.Client(), settings.ai_api_key, settings.ai_model,
+                        settings.ai_base_url, settings.ai_timeout_s)  # fmt: skip
+    svc = SyncService(
+        settings, db, AuditLog(db, signer, clock), signer, clock, Metrics(), Triage(llm)
+    )
     svc.drain_outbox()  # crash recovery: finish any projections interrupted before restart
     return svc
 
@@ -168,6 +177,18 @@ def create_app(settings: Settings | None = None, service: SyncService | None = N
     @app.post("/v1/quarantine/{qid}/disposition")
     def dispose(qid: str, body: Disposition, p: P, c: C) -> dict[str, Any]:
         return svc.dispose_quarantine(p, qid, body.decision, body.note, c)
+
+    @app.post("/v1/quarantine/{qid}/triage")
+    def triage_quarantine(qid: str, p: P, c: C) -> dict[str, Any]:
+        return svc.triage_quarantine(p, qid, c).model_dump()
+
+    @app.post("/v1/conflicts/{cid}/triage")
+    def triage_conflict(cid: str, p: P, c: C) -> dict[str, Any]:
+        return svc.triage_conflict(p, cid, c).model_dump()
+
+    @app.post("/v1/alerts/{aid}/triage")
+    def triage_alert(aid: str, p: P, c: C) -> dict[str, Any]:
+        return svc.triage_alert(p, aid, c).model_dump()
 
     # ---- audit & alerts ----------------------------------------------------------------
     @app.get("/v1/audit")
