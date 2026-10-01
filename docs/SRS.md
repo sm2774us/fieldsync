@@ -17,7 +17,7 @@ Keywords **MUST**, **SHOULD**, **MAY** follow RFC 2119. Priority **M**/**S**/**C
 Define what FieldSync must do so that people working in poor connectivity can keep recording, while supervisors keep a **durable, ordered, idempotent, visible and auditable** record of what was created, synchronised and changed.
 
 In scope: the device event log and sync client (browser reference and Python reference), the ingest API, quarantine and conflict review, outbox and projections, fleet monitoring, audit log, the operator console, packaging and CI/CD, and the Windows/Ubuntu/WSL developer workflows.
-Out of scope: native mobile clients, identity-provider integration, production database/object-store deployment, and any AI component (the design needs none).
+Out of scope: native mobile clients, identity-provider integration, production database/object-store deployment, and any dependency on AI: an optional advisory exists but the design never needs it.
 
 ### 1.2 Definitions
 | Term | Meaning |
@@ -52,7 +52,7 @@ Out of scope: native mobile clients, identity-provider integration, production d
 | Administrator | `admin` | Enrol devices, sign checkpoints; cannot read data |
 
 ### 2.3 Operating environment
-Evergreen browsers with IndexedDB and WebCrypto (SHA-256, AES-GCM); Python 3.12+; Linux containers (non-root); development on Windows 11 (Docker), Ubuntu 24.04 or WSL2.
+Evergreen browsers with IndexedDB and WebCrypto (SHA-256, AES-GCM); Python 3.12+; Node 22+ (SDK, console); Linux containers (non-root); development on Windows 11 (Docker), Ubuntu 24.04 or WSL2.
 
 ### 2.4 Constraints
 C1 Events are immutable. C2 Delivery is at-least-once; correctness comes from idempotency, not from hoping for exactly-once transport. C3 Ordering is per device. C4 No third-party runtime origins in the console.
@@ -165,7 +165,30 @@ These are **design targets, not measured results**.
 | FR-UI-12 | An audit-integrity failure MUST be shown prominently on every screen. | M | SEC |
 | FR-UI-13 | Offline or unreachable service MUST be indicated; errors MUST show the request ID. | M | UX |
 
-### 3.8 Non-functional requirements (NFR)
+### 3.8 Optional advisory triage (FR-AI)
+
+| ID | Requirement | Pri | Source |
+|---|---|:-:|:-:|
+| FR-AI-01 | Quarantine, blocking, conflicts and alerts MUST be decided by deterministic rules; the advisory MUST NOT gate or change any data. | M | SEC |
+| FR-AI-02 | With AI disabled, unkeyed, failing, or returning invalid output, triage MUST still return a complete rule-based advisory. | M | REL |
+| FR-AI-03 | A model MUST NOT lower a rule-derived severity, change the category, or add actions outside the allow-list. | M | SEC |
+| FR-AI-04 | Only allow-listed, pseudonymous metadata MUST reach the model; never event payloads, record content or free text. Context MUST travel as untrusted data. | M | SEC |
+| FR-AI-05 | Every AI use MUST be auditable (model id, prompt hash) and MUST NOT run inside a database transaction. | M | SEC |
+| FR-AI-06 | A golden-set eval MUST gate the rules baseline in CI; the LLM path SHOULD be scored on a schedule without blocking deploys. | S | DEV |
+| FR-AI-07 | The console MUST label advice as advice, show whether it came from rules or rules plus a named model, and be hidden for roles without `triage:run`. | S | UX |
+| FR-AI-08 | A read-only MCP server MAY expose fleet, alerts, quarantine, advisory and audit verification to an agent, with no write tools. | C | OPS |
+
+### 3.9 SDK and deployment (FR-SDK, FR-DEP)
+
+| ID | Requirement | Pri | Source |
+|---|---|:-:|:-:|
+| FR-SDK-01 | A Node/TypeScript SDK MUST provide an encrypted append-only device log, resumable idempotent sync and the same event hash as the service. | S | DEV |
+| FR-SDK-02 | The SDK MUST never fabricate history and MUST NOT reuse sequence numbers after compaction. | S | BR |
+| FR-DEP-01 | Reference Kubernetes manifests MUST run non-root with no privilege escalation, a NetworkPolicy and a scheduled scan/checkpoint/verify job that can actually reach the data volume. | S | OPS |
+| FR-DEP-02 | Reference Terraform MUST provide Object-Lock (COMPLIANCE) archive and anchor buckets with KMS, public-access block and TLS-only policy. | S | SEC |
+| FR-DEP-03 | Operational CLI MUST provide `scan`, `checkpoint` and `verify-audit` for scheduled jobs. | S | OPS |
+
+### 3.10 Non-functional requirements (NFR)
 
 | ID | Requirement | Pri | Source |
 |---|---|:-:|:-:|
@@ -199,6 +222,7 @@ These are **design targets, not measured results**.
 | `GET /v1/conflicts`, `POST /v1/conflicts/{id}/resolve` | Conflict review | `conflicts:read` / `conflicts:review` |
 | `GET /v1/quarantine`, `POST /v1/quarantine/{id}/disposition` | Quarantine review | `quarantine:read` / `quarantine:review` |
 | `GET /v1/alerts`, `POST /v1/alerts/{id}/ack` | Alerts | `alerts:read` / `alerts:ack` |
+| `POST /v1/quarantine/{id}/triage`, `/v1/conflicts/{id}/triage`, `/v1/alerts/{id}/triage` | Advisory (read-only, audited) | `triage:run` |
 | `GET /v1/audit`, `POST /v1/audit/verify`, `POST /v1/audit/checkpoint` | Audit | `audit:read` / `audit:verify` / `audit:checkpoint` |
 | `GET /healthz`, `/readyz`, `/metrics`, `/v1/keys` | Operations | none |
 
@@ -234,6 +258,7 @@ Production mapping: PostgreSQL with `REVOKE UPDATE, DELETE` and encryption at re
 | events:read | | X | X | X | |
 | records:read | | X | X | | |
 | alerts:read, alerts:ack | | X | | X | |
+| triage:run | | X | X | X | |
 | conflicts:read | | X | X | X | |
 | conflicts:review | | | X | | |
 | quarantine:read | | X | X | X | |

@@ -15,9 +15,9 @@ Device: encrypted append-only log ──▶ resumable, idempotent batches ──
 
 | Requirement | Where | Proof |
 |---|---|---|
-| Append-only encrypted local log; device ID, monotonic sequence, timestamp, op ID, schema version | `web/src/lib/sync`, `src/fieldsync/device.py` | engine, store and device tests |
+| Append-only encrypted local log; device ID, monotonic sequence, timestamp, op ID, schema version | `web/src/lib/sync`, `src/fieldsync/device.py`, `sdk-ts` | engine, store and device tests |
 | Resumable, idempotent batches; lost acknowledgements are harmless | `SyncEngine`, `service.ingest` | lost-ack, replay and duplicate tests |
-| Server validates auth, schema, authorisation, sequence; commits transactionally; acks through N | `src/fieldsync/service.py` | 38 pytest |
+| Server validates auth, schema, authorisation, sequence; commits transactionally; acks through N | `src/fieldsync/service.py` | 60 pytest |
 | Device compacts only after ack; sequence numbers never reused | `LocalLog.compact`, `SyncEngine.compact` | compaction tests (found a real bug) |
 | Outbox with idempotent consumers | `outbox` table, `drain_outbox` | crash-safe projection test |
 | Conflicts: version checks + review queue, never silent overwrite | conflicts API and screens | conflict tests |
@@ -25,8 +25,10 @@ Device: encrypted append-only log ──▶ resumable, idempotent batches ──
 | Monitoring: heartbeat, queue depth, retries, lag, rejected schemas, storage; offline alerts | Fleet, `/metrics`, fleet scan | fleet and metrics tests |
 | Least privilege, encryption, audit, immutable originals | roles, AES-GCM, hash-chained audit, triggers | separation-of-duties, immutability, tamper tests |
 | Hash mismatch: quarantine, preserve, alert, retry when appropriate, record it | quarantine flow | mismatch and skip tests |
+| Advisory triage: rules decide, optional AI enriches, never gates data | `src/fieldsync/triage.py`, `evals/` | 15 golden cases plus the triage test module |
+| Device SDK, deployment references | `sdk-ts/`, `deploy/` | 9 SDK tests; manifests parsed only |
 
-Read `docs/Solution-Deep-Dive.md` first (design, protocol, every screen wireframed), then `docs/SRS.md` and `docs/SRS-Compliance.md` (70 requirements with honest status).
+Read `docs/Solution-Deep-Dive.md` first (design, protocol, every screen wireframed), then `docs/SRS.md` and `docs/SRS-Compliance.md` (requirements with honest status). Also: `docs/ARCHITECTURE.md`, `THREAT_MODEL.md`, `COMPLIANCE.md`, `DESIGN_ANSWER.md`, `RUNBOOK.md`.
 
 ## Quick start
 
@@ -53,11 +55,14 @@ bash scripts/dev-token.sh supervisor      # another terminal: prints a sign-in t
 ## Layout
 ```
 src/fieldsync/   API, ingest service, audit chain, roles, reference device, demo, CLI
-tests/           38 tests; tests/vectors/event_vector.json is the cross-language hash vector
-web/             React 19 + TypeScript console and the browser sync engine (web/src/lib/sync); 74 tests
+tests/           60 tests; tests/vectors/event_vector.json is the cross-language hash vector
+web/             React 19 + TypeScript console and the browser sync engine (web/src/lib/sync); 81 tests
+sdk-ts/          Node/TypeScript device SDK (encrypted log, resumable idempotent sync); 9 tests
+evals/           golden set + harness for the triage advisory (rules baseline gates CI)
+deploy/          Kubernetes and Terraform reference manifests (see deploy/README.md)
 scripts/         check.cmd (Windows) · check/dev/dev-token/setup-linux/set-owner .sh (Linux, WSL)
-.github/         ci.yml · security.yml · release.yml · CODEOWNERS
-docs/            Solution-Deep-Dive.md · SRS.md · SRS-Compliance.md
+.github/         ci.yml · security.yml · release.yml · ai-evals.yml · CODEOWNERS
+docs/            Solution-Deep-Dive · SRS · SRS-Compliance · ARCHITECTURE · THREAT_MODEL · COMPLIANCE · DESIGN_ANSWER · RUNBOOK
 ```
 
 ## Configuration (`.env`)
@@ -68,8 +73,9 @@ docs/            Solution-Deep-Dive.md · SRS.md · SRS-Compliance.md
 | `SYNC_OFFLINE_AFTER_S` | Silence (s) before a device is offline and alerts (default 3600) |
 | `SYNC_BACKLOG_ALERT` | Device queue depth that raises an alert (default 1000) |
 | `SYNC_DATA_DIR`, `SYNC_MAX_BATCH_EVENTS` | Storage location; batch limit (default 500) |
+| `SYNC_AI_ENABLED`, `SYNC_ANTHROPIC_API_KEY`, `SYNC_AI_MODEL` | Optional advisory enrichment. Off by default; needs both the flag and a key. Never gates data |
 
 ## Honest limits
 Reference persistence is SQLite (production: PostgreSQL); immutability is enforced by triggers, which are **tamper-evident, not tamper-proof** (production: WORM/object lock); TLS and server-side encryption are deployment work; device auth is a bearer token; the console has not been run in a real browser, and Docker/GitHub Actions paths are written but were not executed by the author. Details: `docs/SRS-Compliance.md` §4 to §6.
 
-No AI components. No dependency bots.
+AI is optional and advisory only (off by default; the workflow never depends on it). No dependency bots. See `CONTRIBUTING.md` and `SECURITY.md`.

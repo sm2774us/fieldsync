@@ -10,6 +10,7 @@ import { describeAlert } from "@/lib/describe";
 import type { Alert } from "@/lib/types";
 import { fmtTime, relTime } from "@/lib/utils";
 import { useSession } from "@/store/session";
+import { AdvisoryPanel } from "@/components/Advisory";
 import { SeverityBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -56,6 +57,7 @@ export function AlertsPage() {
                 {sel.kind.startsWith("DEVICE") || sel.kind.startsWith("BACKLOG") || sel.kind.startsWith("STORAGE") ? <Link className="underline" to="/fleet/$id" params={{ id: sel.object_id ?? "" }}>open device</Link> : null}
                 {sel.kind === "CONFLICT_OPEN" ? <Link className="underline" to="/conflicts">open conflicts</Link> : null}
                 {sel.kind === "EVENT_QUARANTINED" ? <Link className="underline" to="/quarantine">open quarantine</Link> : null}</div>
+              {["DEVICE_OFFLINE", "BACKLOG_HIGH", "STORAGE_LOW"].includes(sel.kind) ? <AdvisoryPanel kind="alerts" id={sel.alert_id} /> : null}
               {sel.status === "open" && can(role, "alerts:ack") ? <ConfirmButton size="md" variant="primary" label="Acknowledge alert" confirmLabel="Confirm acknowledge" loading={ack.isPending} onConfirm={() => ack.mutate(sel.alert_id)} />
                 : sel.status !== "open" ? <p className="text-xs text-muted-foreground">Acknowledged by {sel.acked_by} {sel.acked_at_ms ? relTime(sel.acked_at_ms) : ""}.</p> : null}
             </div>) : null}

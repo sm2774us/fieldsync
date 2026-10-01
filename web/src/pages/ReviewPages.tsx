@@ -10,6 +10,7 @@ import type { Conflict, QuarantineItem } from "@/lib/types";
 import { fmtTime, relTime } from "@/lib/utils";
 import { useSession } from "@/store/session";
 import { Badge } from "@/components/ui/badge";
+import { AdvisoryPanel } from "@/components/Advisory";
 import { DataTable } from "@/components/ui/data-table";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input, Select } from "@/components/ui/input";
@@ -64,6 +65,7 @@ export function ConflictsPage() {
           {sel ? (
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2"><Side title={`Current on the server (v${sel.current_version ?? "none"})`} data={sel.current} tone="" /><Side title={`Proposed by ${sel.device_id} #${sel.seq} (from v${sel.base_version ?? "?"})`} data={proposed} tone="border-warning/50" /></div>
+              <AdvisoryPanel kind="conflicts" id={sel.conflict_id} />
               {sel.status === "resolved" ? <p className="text-sm text-muted-foreground">Resolved by {sel.resolved_by}: {sel.resolution}.</p>
                 : can(role, "conflicts:review") ? (
                   <form className="space-y-3" onSubmit={(e) => e.preventDefault()}>
@@ -126,6 +128,7 @@ export function QuarantinePage() {
             <div className="space-y-4">
               {sel.reason === "hash_mismatch" ? <Hashes item={sel} /> : null}
               <div><div className="mb-1 text-xs text-muted-foreground">The event exactly as received (immutable)</div><pre className="max-h-56 overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(sel.event, null, 2)}</pre></div>
+              <AdvisoryPanel kind="quarantine" id={sel.quarantine_id} />
               {sel.detail.detail ? <p className="text-sm text-muted-foreground">{sel.detail.detail}</p> : null}
               {sel.status !== "open" ? <p className="text-sm text-muted-foreground">Reviewed by {sel.reviewed_by}: {sel.review_note}</p>
                 : can(role, "quarantine:review") ? (

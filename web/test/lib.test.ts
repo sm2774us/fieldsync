@@ -46,6 +46,8 @@ describe("auth", () => {
     expect(can("auditor", "conflicts:review")).toBe(false);
     expect(can("reviewer", "fleet:read")).toBe(false);
     expect(can("device", "sync:write")).toBe(true);
+    expect(can("admin", "triage:run")).toBe(false);
+    expect(can("reviewer", "triage:run")).toBe(true);
     expect(can(undefined, "alerts:read")).toBe(false);
     expect(Object.keys(PERMISSIONS)).toHaveLength(5);
   });

@@ -36,21 +36,43 @@ jobs:
             pyproject.toml
             constraints.txt
       - name: Install (constrained, reproducible)
-        run: pip install -c constraints.txt -e ".[dev]"
+        run: pip install -c constraints.txt -e ".[dev,mcp]"
       - name: Lint
         run: ruff check . && ruff format --check .
       - name: Types
         run: mypy src
       - name: Tests + coverage gate
         run: pytest --cov=fieldsync --cov-report=term-missing --cov-report=xml
+      - name: Deterministic triage evals (no AI, no secrets)
+        run: python evals/run.py --rules-only --report eval-rules.json
       - name: End-to-end simulation (offline authoring, lossy link, conflict, tamper)
         run: fieldsync-admin demo
       - uses: actions/upload-artifact@v4
         if: matrix.python == '3.13'
         with:
           name: python-reports
-          path: coverage.xml
+          path: |
+            coverage.xml
+            eval-rules.json
           retention-days: 14
+
+  typescript:
+    name: sdk (typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults: { run: { working-directory: sdk-ts } }
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sdk-ts/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - name: Tests (includes the cross-language event-hash vector)
+        run: npm test
 
   web:
     name: web console
@@ -169,7 +191,7 @@ jobs:
   ci-ok:
     name: ci-ok (required check)
     if: always()
-    needs: [python, web, workflows-lint, container, stack]
+    needs: [python, typescript, web, workflows-lint, container, stack]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to pass

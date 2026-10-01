@@ -1,7 +1,10 @@
 # Security-sensitive paths require review from the security group (configure the team names).
-/src/fieldsync/audit.py     @your-org/security
-/src/fieldsync/auth.py      @your-org/security
-/src/fieldsync/service.py   @your-org/security
-/src/fieldsync/db.py        @your-org/security
-/web/src/lib/sync/          @your-org/security
-/.github/                   @your-org/platform
+/src/fieldsync/audit.py     @sm2774us
+/src/fieldsync/auth.py      @sm2774us
+/src/fieldsync/service.py   @sm2774us
+/src/fieldsync/db.py        @sm2774us
+/web/src/lib/sync/          @sm2774us
+/.github/                   @sm2774us
+/sdk-ts/                    @sm2774us
+/deploy/                    @sm2774us
+/evals/                     @sm2774us

@@ -39,3 +39,7 @@ export interface AuditEntry {
   object_id: string; object_version: string | null; source_ip: string | null; request_id: string | null;
   detail: Record<string, unknown>; prev_hash: string; entry_hash: string;
 }
+export interface Advisory {
+  category: string; severity: "low" | "medium" | "high" | "critical"; summary: string; reasons: string[];
+  recommended_actions: string[]; source: "rules" | "rules+llm"; model: string | null; prompt_sha256: string | null;
+}

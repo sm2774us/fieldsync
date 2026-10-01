@@ -1,0 +1,48 @@
+name: AI evals
+
+# Scores the optional LLM-enrichment path against the golden set. The deterministic baseline
+# already gates every CI run; this workflow measures the *AI delta* and enforces the safety
+# invariants (severity floor, action allow-list, prompt minimisation) against a real model.
+# The sync workflow itself never depends on AI, so a failure here never blocks a deploy.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model id to evaluate"
+        default: "claude-sonnet-5-5"
+  schedule:
+    - cron: "41 6 * * 3"   # weekly drift check
+  pull_request:
+    paths:
+      - "src/fieldsync/triage.py"
+      - "evals/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SYNC_ANTHROPIC_API_KEY: ${{ github.event.pull_request.head.repo.fork == true && '' || secrets.ANTHROPIC_API_KEY }}
+      SYNC_AI_MODEL: ${{ inputs.model || 'claude-sonnet-5-5' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -c constraints.txt -e .
+      - name: Run evals (LLM path is skipped automatically when no key is available)
+        run: python evals/run.py --report eval-report.json
+      - name: Summary
+        if: always()
+        run: |
+          { echo '### Triage eval report'; echo '```json'; cat eval-report.json 2>/dev/null || echo '{}'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: eval-report, path: eval-report.json, retention-days: 30 }

@@ -81,3 +81,5 @@ docs/                           export-ignore
 .dockerignore                   export-ignore
 
 web/test/fixtures/*.json    -text
+sdk-ts/package-lock.json        -diff -merge linguist-generated=true
+evals/cases.jsonl       -text

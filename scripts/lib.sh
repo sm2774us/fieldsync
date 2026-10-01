@@ -30,7 +30,7 @@ ensure_venv() {
   source .venv/bin/activate
   if ! python -c 'import fieldsync' 2>/dev/null || [[ pyproject.toml -nt .venv/.installed || constraints.txt -nt .venv/.installed ]]; then
     say "Installing Python dependencies (pinned by constraints.txt)"
-    pip install -q -c constraints.txt -e ".[dev]"
+    pip install -q -c constraints.txt -e ".[dev,mcp]"
     touch .venv/.installed
   fi
 }
